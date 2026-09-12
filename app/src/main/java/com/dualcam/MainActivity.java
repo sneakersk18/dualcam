@@ -65,8 +65,8 @@ public class MainActivity extends AppCompatActivity {
     };
 
     // UI
-    private TextureView textureBack, textureFront;
-    private View filterOverlay;
+    private AutoFitTextureView textureBack, textureFront;
+    private View filterOverlay, pipContainer;
     private TextView filterNameView, recIndicator;
     private StickerView stickerView;
     private MaterialButton btnCapture, btnRecord, btnSticker;
@@ -113,6 +113,8 @@ public class MainActivity extends AppCompatActivity {
 
         textureBack = findViewById(R.id.texture_back);
         textureFront = findViewById(R.id.texture_front);
+        textureBack.setAspectRatio(16, 9);
+        textureFront.setAspectRatio(1, 1);
         filterOverlay = findViewById(R.id.filter_overlay);
         filterNameView = findViewById(R.id.filter_name);
         recIndicator = findViewById(R.id.rec_indicator);
@@ -121,6 +123,8 @@ public class MainActivity extends AppCompatActivity {
         btnRecord = findViewById(R.id.btn_record);
         btnSticker = findViewById(R.id.btn_sticker);
         filtersRow = findViewById(R.id.filters_row);
+        pipContainer = findViewById(R.id.pip_container);
+        setupPipDrag();
 
         if (!hasPermissions()) {
             ActivityCompat.requestPermissions(this, PERMISSIONS, PERM_REQUEST);
@@ -197,6 +201,26 @@ public class MainActivity extends AppCompatActivity {
         stickerView.setOnLongClickListener(v -> {
             stickerView.removeSelected();
             return true;
+        });
+    }
+
+    private void setupPipDrag() {
+        pipContainer.setOnTouchListener(new View.OnTouchListener() {
+            float dX, dY;
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                switch (e.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        dX = v.getX() - e.getRawX();
+                        dY = v.getY() - e.getRawY();
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        v.setX(e.getRawX() + dX);
+                        v.setY(e.getRawY() + dY);
+                        return true;
+                }
+                return false;
+            }
         });
     }
 
