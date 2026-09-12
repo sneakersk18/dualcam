@@ -1,50 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.photoswipe">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Storage permissions: legacy (API ≤ 28) -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29"/>
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
-    <!-- Storage permissions: API 33+ -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
-
-    <!-- Needed to trigger MediaStore rescan -->
-    <uses-permission android:name="android.permission.MANAGE_MEDIA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="true" />
 
     <application
         android:allowBackup="true"
-        android:label="PhotoSwipe"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:requestLegacyExternalStorage="true"
-        android:theme="@style/AppTheme">
+        android:label="DualCam"
+        android:theme="@style/Theme.DualCam">
 
-        <!-- Splash: LAUNCHER entry point -->
         <activity
-            android:name=".SplashActivity"
+            android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/SplashTheme">
+            android:screenOrientation="portrait">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Main swipe activity -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"/>
-
-        <!-- Trash viewer activity -->
-        <activity
-            android:name=".TrashActivity"
-            android:exported="false"
-            android:label="Papelera"
-            android:theme="@style/TrashTheme"/>
-
     </application>
+
 </manifest>
