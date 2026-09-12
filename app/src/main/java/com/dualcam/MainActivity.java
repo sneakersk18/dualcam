@@ -5,14 +5,10 @@ import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.ColorMatrix;
-import android.graphics.ColorMatrixColorFilter;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
-import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -29,11 +25,14 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.provider.MediaStore;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.BaseAdapter;
+import android.widget.GridView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -69,8 +68,9 @@ public class MainActivity extends AppCompatActivity {
     private View filterOverlay, pipContainer;
     private TextView filterNameView, recIndicator, zoomIndicator;
     private StickerView stickerView;
+    private FaceEffectView faceEffectView;
     private MaterialButton btnCapture, btnRecord, btnSticker;
-    private LinearLayout filtersRow;
+    private LinearLayout effectsRow;
 
     // Camera
     private CameraManager cameraManager;
@@ -95,22 +95,19 @@ public class MainActivity extends AppCompatActivity {
     private float maxZoom = 1.0f;
     private Runnable hideZoomIndicator;
 
-    // Filters
-    private static final int FILTER_NORMAL   = 0;
-    private static final int FILTER_VIVID    = 1;
-    private static final int FILTER_BW       = 2;
-    private static final int FILTER_WARM     = 3;
-    private static final int FILTER_COOL     = 4;
-    private static final int FILTER_DISTORT  = 5;
-    private int currentFilter = FILTER_NORMAL;
+    // Effects
+    private int currentEffect = FaceEffectView.EFFECT_NONE;
+    private MaterialButton[] effectBtns;
 
-    private static final String[][] FILTER_DATA = {
-        {"NORMAL",    "#00000000"},
-        {"VIVIDO",    "#33FF6600"},
-        {"B&W",       "#44000000"},
-        {"CÁLIDO",    "#33FF8800"},
-        {"FRÍO",      "#3300AAFF"},
-        {"DISTORSIÓN","#33AA00FF"}
+    private static final Object[][] EFFECT_DATA = {
+        {FaceEffectView.EFFECT_NONE,    "✖",  "SIN"},
+        {FaceEffectView.EFFECT_HEARTS,  "❤️", "AMOR"},
+        {FaceEffectView.EFFECT_FIRE,    "🔥", "FUEGO"},
+        {FaceEffectView.EFFECT_SPARKS,  "✨", "CHISPAS"},
+        {FaceEffectView.EFFECT_SNOW,    "❄️", "NIEVE"},
+        {FaceEffectView.EFFECT_GLITCH,  "📺", "GLITCH"},
+        {FaceEffectView.EFFECT_NEON,    "💜", "NEON"},
+        {FaceEffectView.EFFECT_VINTAGE, "📷", "RETRO"},
     };
 
     @Override
@@ -128,10 +125,11 @@ public class MainActivity extends AppCompatActivity {
         recIndicator   = findViewById(R.id.rec_indicator);
         zoomIndicator  = findViewById(R.id.zoom_indicator);
         stickerView    = findViewById(R.id.sticker_view);
+        faceEffectView = findViewById(R.id.face_effect_view);
         btnCapture     = findViewById(R.id.btn_capture);
         btnRecord      = findViewById(R.id.btn_record);
         btnSticker     = findViewById(R.id.btn_sticker);
-        filtersRow     = findViewById(R.id.filters_row);
+        effectsRow     = findViewById(R.id.effects_row);
         pipContainer   = findViewById(R.id.pip_container);
 
         setupPipDrag();
@@ -163,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
         cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         findCameraIds();
         loadMaxZoom();
-        buildFilterButtons();
+        buildEffectButtons();
         setupButtons();
         setupTextureListeners();
     }
@@ -191,17 +189,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ===== TRANSFORM: centerCrop sin distorsión =====
-    // La cámara entrega landscape (1280×720). TextureView aplica la rotación del sensor
-    // internamente, por lo que el contenido efectivo es portrait (720×1280).
-    // El view es más alto que el contenido → corrección de escala uniforme.
     private void applyFillTransform(TextureView tv, float contentW, float contentH) {
         tv.post(() -> {
             int vw = tv.getWidth(), vh = tv.getHeight();
             if (vw == 0 || vh == 0) return;
-            // Escalas actuales (default stretch del TextureView)
             float scaleX = vw / contentW;
             float scaleY = vh / contentH;
-            // CenterCrop: escala uniforme por el máximo → recorta el eje más pequeño
             float maxScale = Math.max(scaleX, scaleY);
             Matrix m = new Matrix();
             m.setScale(maxScale / scaleX, maxScale / scaleY, vw / 2f, vh / 2f);
@@ -256,34 +249,84 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ===== SETUP =====
-    private void buildFilterButtons() {
-        filtersRow.removeAllViews();
-        for (int i = 0; i < FILTER_DATA.length; i++) {
+    // ===== EFFECTS TRAY =====
+    private void buildEffectButtons() {
+        effectsRow.removeAllViews();
+        effectBtns = new MaterialButton[EFFECT_DATA.length];
+
+        for (int i = 0; i < EFFECT_DATA.length; i++) {
             final int idx = i;
+            final int effect = (int) EFFECT_DATA[i][0];
+            String emoji = (String) EFFECT_DATA[i][1];
+            String label = (String) EFFECT_DATA[i][2];
+
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.CENTER);
+            col.setPadding(dpToPx(6), 0, dpToPx(6), 0);
+
             MaterialButton btn = new MaterialButton(this, null,
                 com.google.android.material.R.attr.borderlessButtonStyle);
-            btn.setText(FILTER_DATA[i][0]);
-            btn.setTextColor(Color.WHITE);
-            btn.setTextSize(11f);
-            btn.setPaddingRelative(24, 0, 24, 0);
-            if (i == 0) btn.setBackgroundColor(0x44FFFFFF);
-            final MaterialButton fb = btn;
+            btn.setText(emoji);
+            btn.setTextSize(18f);
+            int size = dpToPx(52);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            btn.setLayoutParams(lp);
+            btn.setBackgroundTintList(ColorStateList.valueOf(0x33FFFFFF));
+            btn.setCornerRadius(size / 2);
+            btn.setMinWidth(0);
+            btn.setMinimumWidth(0);
+            btn.setMinHeight(0);
+            btn.setMinimumHeight(0);
+            btn.setPadding(0, 0, 0, 0);
+            btn.setInsetTop(0);
+            btn.setInsetBottom(0);
+            effectBtns[i] = btn;
+
+            TextView lbl = new TextView(this);
+            lbl.setText(label);
+            lbl.setTextColor(Color.WHITE);
+            lbl.setTextSize(8.5f);
+            lbl.setGravity(Gravity.CENTER);
+            lbl.setPadding(0, dpToPx(3), 0, 0);
+
             btn.setOnClickListener(v -> {
-                applyFilter(idx);
-                for (int j = 0; j < filtersRow.getChildCount(); j++)
-                    filtersRow.getChildAt(j).setBackgroundColor(0);
-                fb.setBackgroundColor(0x44FFFFFF);
+                currentEffect = effect;
+                faceEffectView.setEffect(effect);
+                filterNameView.setText(label);
+                for (MaterialButton b : effectBtns) markEffectSelected(b, false);
+                markEffectSelected(btn, true);
             });
-            filtersRow.addView(btn);
+
+            col.addView(btn);
+            col.addView(lbl);
+            effectsRow.addView(col);
+        }
+        markEffectSelected(effectBtns[0], true);
+        filterNameView.setText((String) EFFECT_DATA[0][2]);
+    }
+
+    private void markEffectSelected(MaterialButton btn, boolean selected) {
+        if (selected) {
+            btn.setStrokeColor(ColorStateList.valueOf(Color.WHITE));
+            btn.setStrokeWidth(dpToPx(2));
+            btn.setBackgroundTintList(ColorStateList.valueOf(0x55FFFFFF));
+        } else {
+            btn.setStrokeWidth(0);
+            btn.setBackgroundTintList(ColorStateList.valueOf(0x33FFFFFF));
         }
     }
 
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    // ===== SETUP =====
     private void setupButtons() {
         btnCapture.setOnClickListener(v -> {
             filterOverlay.setVisibility(View.VISIBLE);
             filterOverlay.setBackgroundColor(0xAAFFFFFF);
-            filterOverlay.postDelayed(() -> applyFilter(currentFilter), 100);
+            filterOverlay.postDelayed(() -> filterOverlay.setVisibility(View.GONE), 120);
             takePhoto();
         });
         btnRecord.setOnClickListener(v -> { if (isRecording) stopRecording(); else startRecording(); });
@@ -335,7 +378,6 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture st) {}
         });
 
-        // Zoom por pellizco en cámara trasera
         textureBack.setOnTouchListener((v, event) -> {
             scaleDetector.onTouchEvent(event);
             return true;
@@ -368,7 +410,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             SurfaceTexture st = textureBack.getSurfaceTexture();
             st.setDefaultBufferSize(1280, 720);
-            // Aplica centerCrop DESPUÉS de conocer las dimensiones del view
             applyFillTransform(textureBack, 720, 1280);
             backPreviewSurface = new Surface(st);
 
@@ -401,7 +442,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             SurfaceTexture st = textureFront.getSurfaceTexture();
             st.setDefaultBufferSize(1280, 720);
-            // CenterCrop para círculo: muestra el centro del frame
             applyFillTransform(textureFront, 720, 1280);
             Surface previewSurface = new Surface(st);
 
@@ -419,18 +459,6 @@ public class MainActivity extends AppCompatActivity {
                 @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
             }, cameraHandler);
         } catch (CameraAccessException e) { e.printStackTrace(); }
-    }
-
-    // ===== FILTROS =====
-    private void applyFilter(int idx) {
-        currentFilter = idx;
-        filterNameView.setText(FILTER_DATA[idx][0]);
-        if (idx == FILTER_NORMAL) {
-            filterOverlay.setVisibility(View.GONE);
-        } else {
-            filterOverlay.setVisibility(View.VISIBLE);
-            filterOverlay.setBackgroundColor(Color.parseColor(FILTER_DATA[idx][1]));
-        }
     }
 
     // ===== FOTO =====
@@ -457,9 +485,6 @@ public class MainActivity extends AppCompatActivity {
         ByteBuffer buf = image.getPlanes()[0].getBuffer();
         byte[] bytes = new byte[buf.remaining()];
         buf.get(bytes);
-        Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        if (bmp == null) return;
-        Bitmap filtered = applyColorFilter(bmp, currentFilter);
         String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         ContentValues cv = new ContentValues();
         cv.put(MediaStore.Images.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".jpg");
@@ -468,45 +493,10 @@ public class MainActivity extends AppCompatActivity {
         Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
         if (uri != null) {
             try (OutputStream os = getContentResolver().openOutputStream(uri)) {
-                filtered.compress(Bitmap.CompressFormat.JPEG, 95, os);
+                os.write(bytes);
             } catch (IOException e) { e.printStackTrace(); }
         }
         runOnUiThread(() -> Toast.makeText(this, "📸 Foto guardada", Toast.LENGTH_SHORT).show());
-    }
-
-    private Bitmap applyColorFilter(Bitmap src, int filter) {
-        if (filter == FILTER_NORMAL) return src;
-        if (filter == FILTER_DISTORT) return applyDistortion(src);
-        Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
-        Canvas canvas = new Canvas(out);
-        Paint paint = new Paint();
-        ColorMatrix cm = new ColorMatrix();
-        switch (filter) {
-            case FILTER_VIVID:  cm.setSaturation(2.5f); break;
-            case FILTER_BW:     cm.setSaturation(0f);   break;
-            case FILTER_WARM: { float[] m = {1.2f,0,0,0,20, 0,1f,0,0,0, 0,0,0.8f,0,-10, 0,0,0,1,0}; cm.set(m); break; }
-            case FILTER_COOL: { float[] m = {0.8f,0,0,0,-10, 0,1f,0,0,0, 0,0,1.3f,0,20, 0,0,0,1,0}; cm.set(m); break; }
-        }
-        paint.setColorFilter(new ColorMatrixColorFilter(cm));
-        canvas.drawBitmap(src, 0, 0, paint);
-        return out;
-    }
-
-    private Bitmap applyDistortion(Bitmap src) {
-        int w = src.getWidth(), h = src.getHeight();
-        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        int[] sp = new int[w*h], dp = new int[w*h];
-        src.getPixels(sp, 0, w, 0, 0, w, h);
-        float cx = w/2f, cy = h/2f, k = 0.0003f;
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++) {
-                float dx = x-cx, dy = y-cy, f = 1f+k*(dx*dx+dy*dy);
-                int sx = Math.max(0, Math.min(w-1,(int)(cx+dx*f)));
-                int sy = Math.max(0, Math.min(h-1,(int)(cy+dy*f)));
-                dp[y*w+x] = sp[sy*w+sx];
-            }
-        out.setPixels(dp, 0, w, 0, 0, w, h);
-        return out;
     }
 
     // ===== VIDEO =====
@@ -582,20 +572,50 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== STICKERS =====
     private void showStickerPicker() {
-        String[] emojis = {"😂","😍","🔥","✨","💀","🤡","😎","👻","💪","🫠",
-                           "❤️","💥","⭐","🎉","🤔","😤","🥵","😈","🤩","💫",
-                           "🌈","🦋","🏆","🎸","🍕","🌙","☀️","🎯","🦄","💎"};
-        new AlertDialog.Builder(this)
-            .setTitle("Agregar sticker")
-            .setItems(emojis, (d, w) -> stickerView.addSticker(emojis[w]))
-            .setNeutralButton("Limpiar", (d, w) -> stickerView.clearStickers())
-            .show();
+        final String[] emojis = {
+            "😂","😍","🔥","✨","💀","🤡","😎","👻","💪","🫠",
+            "❤️","💥","⭐","🎉","🤔","😤","🥵","😈","🤩","💫",
+            "🌈","🦋","🏆","🎸","🍕","🌙","☀️","🎯","🦄","💎",
+            "🐱","🐶","🐸","🍓","🍩","🎃","🦊","🐧","🌺","🎀"
+        };
+
+        GridView grid = new GridView(this);
+        grid.setNumColumns(5);
+        grid.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+        grid.setVerticalSpacing(dpToPx(4));
+        grid.setHorizontalSpacing(dpToPx(4));
+
+        grid.setAdapter(new BaseAdapter() {
+            @Override public int getCount() { return emojis.length; }
+            @Override public Object getItem(int pos) { return emojis[pos]; }
+            @Override public long getItemId(int pos) { return pos; }
+            @Override public View getView(int pos, View convertView, android.view.ViewGroup parent) {
+                TextView tv = (convertView instanceof TextView) ? (TextView) convertView : new TextView(MainActivity.this);
+                tv.setText(emojis[pos]);
+                tv.setTextSize(28f);
+                tv.setGravity(Gravity.CENTER);
+                tv.setPadding(0, dpToPx(6), 0, dpToPx(6));
+                return tv;
+            }
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Stickers")
+            .setView(grid)
+            .setNeutralButton("Limpiar todo", (d, w) -> stickerView.clearStickers())
+            .setNegativeButton("Cerrar", null)
+            .create();
+
+        grid.setOnItemClickListener((parent, view, pos, id) -> stickerView.addSticker(emojis[pos]));
+
+        dialog.show();
     }
 
     // ===== LIFECYCLE =====
     @Override
     protected void onPause() {
         super.onPause();
+        if (faceEffectView != null) faceEffectView.setEffect(FaceEffectView.EFFECT_NONE);
         closeCamera();
         if (cameraThread != null) { cameraThread.quitSafely(); cameraThread = null; cameraHandler = null; }
     }
@@ -607,6 +627,7 @@ public class MainActivity extends AppCompatActivity {
             startCameraThread();
             if (textureBack.isAvailable())  openCamera(backCameraId, true);
             if (textureFront.isAvailable()) openCamera(frontCameraId, false);
+            if (faceEffectView != null) faceEffectView.setEffect(currentEffect);
         }
     }
 

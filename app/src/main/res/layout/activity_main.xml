@@ -37,6 +37,18 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Efectos de cara estilo Snapchat (cubre todo, pasa el toque) -->
+    <com.dualcam.FaceEffectView
+        android:id="@+id/face_effect_view"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:clickable="false"
+        android:focusable="false"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- FRONTAL: burbuja circular flotante (top-right, draggable) -->
     <com.dualcam.CircleFrameLayout
         android:id="@+id/pip_container"
@@ -129,20 +141,19 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Fila de filtros (scroll horizontal) -->
+        <!-- Fila de efectos estilo TikTok (scroll horizontal) -->
         <HorizontalScrollView
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="88dp"
             android:scrollbars="none"
             android:overScrollMode="never">
             <LinearLayout
-                android:id="@+id/filters_row"
+                android:id="@+id/effects_row"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingHorizontal="12dp"
-                android:divider="@null" />
+                android:paddingHorizontal="8dp" />
         </HorizontalScrollView>
 
         <!-- Separador sutil -->
