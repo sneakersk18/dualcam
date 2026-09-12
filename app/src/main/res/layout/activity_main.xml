@@ -61,6 +61,25 @@
 
     </com.dualcam.CircleFrameLayout>
 
+    <!-- Indicador de zoom (centro) -->
+    <TextView
+        android:id="@+id/zoom_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="1.0×"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:background="@drawable/badge_bg"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="6dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/controls_bar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="60dp" />
+
     <!-- Indicador REC (top-left) -->
     <TextView
         android:id="@+id/rec_indicator"
