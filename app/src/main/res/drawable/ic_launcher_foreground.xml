@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cuerpo de la cámara -->
+    <path
+        android:pathData="M20,38 Q20,32 26,32 L36,32 L40,26 L68,26 L72,32 L82,32 Q88,32 88,38 L88,76 Q88,82 82,82 L26,82 Q20,82 20,76 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Lente exterior (círculo) -->
+    <path
+        android:pathData="M54,36 m-20,0 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0"
+        android:fillColor="#1A1A2E" />
+
+    <!-- Lente interior -->
+    <path
+        android:pathData="M54,36 m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0"
+        android:fillColor="#2D2D4E" />
+
+    <!-- Reflejo lente -->
+    <path
+        android:pathData="M54,36 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0"
+        android:fillColor="#3A3A6A" />
+
+    <!-- Brillo lente -->
+    <path
+        android:pathData="M48,30 Q46,28 49,26 Q53,25 55,27"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- Flash -->
+    <path
+        android:pathData="M28,38 L34,38 L34,44 L28,44 Z"
+        android:fillColor="#FFD700" />
+
+    <!-- Punto rojo (botón grabación) -->
+    <path
+        android:pathData="M80,40 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0"
+        android:fillColor="#FF3B30" />
+
+    <!-- Texto DualCam pequeño -->
+    <path
+        android:pathData="M26,72 L82,72"
+        android:strokeColor="#CCCCCC"
+        android:strokeWidth="1"
+        android:fillColor="#00000000" />
+
+</vector>

@@ -20,17 +20,14 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
-import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.provider.MediaStore;
-import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -65,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
     };
 
     // UI
-    private AutoFitTextureView textureBack, textureFront;
+    private TextureView textureBack, textureFront;
     private View filterOverlay, pipContainer;
     private TextView filterNameView, recIndicator;
     private StickerView stickerView;
@@ -89,41 +86,46 @@ public class MainActivity extends AppCompatActivity {
     private Uri recordingUri;
 
     // Filters
-    private static final int FILTER_NORMAL = 0;
-    private static final int FILTER_VIVID = 1;
-    private static final int FILTER_BW = 2;
-    private static final int FILTER_WARM = 3;
-    private static final int FILTER_COOL = 4;
-    private static final int FILTER_DISTORT = 5;
+    private static final int FILTER_NORMAL   = 0;
+    private static final int FILTER_VIVID    = 1;
+    private static final int FILTER_BW       = 2;
+    private static final int FILTER_WARM     = 3;
+    private static final int FILTER_COOL     = 4;
+    private static final int FILTER_DISTORT  = 5;
     private int currentFilter = FILTER_NORMAL;
 
     private static final String[][] FILTER_DATA = {
-        {"NORMAL",   "#00000000"},
-        {"VIVIDO",   "#33FF6600"},
-        {"B&W",      "#44000000"},
-        {"CÁLIDO",   "#33FF8800"},
-        {"FRÍO",     "#3300AAFF"},
+        {"NORMAL",    "#00000000"},
+        {"VIVIDO",    "#33FF6600"},
+        {"B&W",       "#44000000"},
+        {"CÁLIDO",    "#33FF8800"},
+        {"FRÍO",      "#3300AAFF"},
         {"DISTORSIÓN","#33AA00FF"}
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Pantalla completa sin status bar
+        getWindow().setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
         setContentView(R.layout.activity_main);
 
-        textureBack = findViewById(R.id.texture_back);
+        textureBack  = findViewById(R.id.texture_back);
         textureFront = findViewById(R.id.texture_front);
-        textureBack.setAspectRatio(16, 9);
-        textureFront.setAspectRatio(1, 1);
-        filterOverlay = findViewById(R.id.filter_overlay);
+        filterOverlay  = findViewById(R.id.filter_overlay);
         filterNameView = findViewById(R.id.filter_name);
-        recIndicator = findViewById(R.id.rec_indicator);
-        stickerView = findViewById(R.id.sticker_view);
-        btnCapture = findViewById(R.id.btn_capture);
-        btnRecord = findViewById(R.id.btn_record);
-        btnSticker = findViewById(R.id.btn_sticker);
-        filtersRow = findViewById(R.id.filters_row);
-        pipContainer = findViewById(R.id.pip_container);
+        recIndicator   = findViewById(R.id.rec_indicator);
+        stickerView    = findViewById(R.id.sticker_view);
+        btnCapture     = findViewById(R.id.btn_capture);
+        btnRecord      = findViewById(R.id.btn_record);
+        btnSticker     = findViewById(R.id.btn_sticker);
+        filtersRow     = findViewById(R.id.filters_row);
+        pipContainer   = findViewById(R.id.pip_container);
+
         setupPipDrag();
 
         if (!hasPermissions()) {
@@ -164,35 +166,49 @@ public class MainActivity extends AppCompatActivity {
                 CameraCharacteristics ch = cameraManager.getCameraCharacteristics(id);
                 Integer facing = ch.get(CameraCharacteristics.LENS_FACING);
                 if (facing != null) {
-                    if (facing == CameraCharacteristics.LENS_FACING_BACK && backCameraId == null) {
-                        backCameraId = id;
-                    } else if (facing == CameraCharacteristics.LENS_FACING_FRONT && frontCameraId == null) {
-                        frontCameraId = id;
-                    }
+                    if (facing == CameraCharacteristics.LENS_FACING_BACK  && backCameraId  == null) backCameraId  = id;
+                    if (facing == CameraCharacteristics.LENS_FACING_FRONT && frontCameraId == null) frontCameraId = id;
                 }
             }
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
+        } catch (CameraAccessException e) { e.printStackTrace(); }
     }
 
     private void buildFilterButtons() {
         filtersRow.removeAllViews();
         for (int i = 0; i < FILTER_DATA.length; i++) {
             final int idx = i;
-            MaterialButton btn = new MaterialButton(this,
-                null, com.google.android.material.R.attr.borderlessButtonStyle);
+            MaterialButton btn = new MaterialButton(this, null,
+                com.google.android.material.R.attr.borderlessButtonStyle);
             btn.setText(FILTER_DATA[i][0]);
             btn.setTextColor(Color.WHITE);
             btn.setTextSize(11f);
-            btn.setPadding(12, 0, 12, 0);
-            btn.setOnClickListener(v -> applyFilter(idx));
+            btn.setPaddingRelative(24, 0, 24, 0);
+            if (i == 0) {
+                btn.setBackgroundColor(0x44FFFFFF);
+            }
+            final MaterialButton finalBtn = btn;
+            btn.setOnClickListener(v -> {
+                applyFilter(idx);
+                // Reset all buttons
+                for (int j = 0; j < filtersRow.getChildCount(); j++) {
+                    filtersRow.getChildAt(j).setBackgroundColor(0x00000000);
+                }
+                finalBtn.setBackgroundColor(0x44FFFFFF);
+            });
             filtersRow.addView(btn);
         }
     }
 
     private void setupButtons() {
-        btnCapture.setOnClickListener(v -> takePhoto());
+        btnCapture.setOnClickListener(v -> {
+            // Animación de flash
+            filterOverlay.setVisibility(View.VISIBLE);
+            filterOverlay.setBackgroundColor(0xAAFFFFFF);
+            filterOverlay.postDelayed(() -> {
+                applyFilter(currentFilter);
+            }, 100);
+            takePhoto();
+        });
         btnRecord.setOnClickListener(v -> {
             if (isRecording) stopRecording();
             else startRecording();
@@ -215,8 +231,13 @@ public class MainActivity extends AppCompatActivity {
                         dY = v.getY() - e.getRawY();
                         return true;
                     case android.view.MotionEvent.ACTION_MOVE:
-                        v.setX(e.getRawX() + dX);
-                        v.setY(e.getRawY() + dY);
+                        float newX = e.getRawX() + dX;
+                        float newY = e.getRawY() + dY;
+                        // Limitar dentro de pantalla
+                        newX = Math.max(0, Math.min(newX, getWindow().getDecorView().getWidth() - v.getWidth()));
+                        newY = Math.max(0, Math.min(newY, getWindow().getDecorView().getHeight() - v.getHeight()));
+                        v.setX(newX);
+                        v.setY(newY);
                         return true;
                 }
                 return false;
@@ -230,7 +251,9 @@ public class MainActivity extends AppCompatActivity {
                 startCameraThread();
                 openCamera(backCameraId, true);
             }
-            @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture st, int w, int h) {}
+            @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture st, int w, int h) {
+                applyFillTransform(textureBack, 720, 1280);
+            }
             @Override public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture st) { return true; }
             @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture st) {}
         });
@@ -242,6 +265,22 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture st, int w, int h) {}
             @Override public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture st) { return true; }
             @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture st) {}
+        });
+    }
+
+    // Aplica escala centerCrop para llenar la vista sin distorsión
+    private void applyFillTransform(TextureView tv, int bufW, int bufH) {
+        tv.post(() -> {
+            int vw = tv.getWidth();
+            int vh = tv.getHeight();
+            if (vw == 0 || vh == 0) return;
+            float scaleX = (float) vw / bufW;
+            float scaleY = (float) vh / bufH;
+            float scale = Math.max(scaleX, scaleY);
+            float cx = vw / 2f, cy = vh / 2f;
+            Matrix m = new Matrix();
+            m.setScale(scale * bufW / vw, scale * bufH / vh, cx, cy);
+            tv.setTransform(m);
         });
     }
 
@@ -261,26 +300,21 @@ public class MainActivity extends AppCompatActivity {
                     else        { frontCamera = camera; createFrontSession(); }
                 }
                 @Override public void onDisconnected(@NonNull CameraDevice camera) { camera.close(); }
-                @Override public void onError(@NonNull CameraDevice camera, int error) {
-                    camera.close();
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                        "Error cámara " + (isBack ? "trasera" : "frontal"), Toast.LENGTH_SHORT).show());
-                }
+                @Override public void onError(@NonNull CameraDevice camera, int error) { camera.close(); }
             }, cameraHandler);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
+        } catch (CameraAccessException e) { e.printStackTrace(); }
     }
 
     private void createBackSession() {
         if (backCamera == null || !textureBack.isAvailable()) return;
         try {
             SurfaceTexture st = textureBack.getSurfaceTexture();
-            st.setDefaultBufferSize(1280, 720);
+            // Buffer portrait: el driver del Pixel maneja la rotación internamente
+            st.setDefaultBufferSize(720, 1280);
+            applyFillTransform(textureBack, 720, 1280);
             Surface previewSurface = new Surface(st);
 
-            // ImageReader para captura de fotos
-            imageReader = ImageReader.newInstance(1280, 720, ImageFormat.JPEG, 2);
+            imageReader = ImageReader.newInstance(720, 1280, ImageFormat.JPEG, 2);
             imageReader.setOnImageAvailableListener(reader -> {
                 android.media.Image image = reader.acquireLatestImage();
                 if (image != null) { savePhoto(image); image.close(); }
@@ -290,15 +324,15 @@ public class MainActivity extends AppCompatActivity {
             surfaces.add(previewSurface);
             surfaces.add(imageReader.getSurface());
 
-            CaptureRequest.Builder previewBuilder = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            previewBuilder.addTarget(previewSurface);
-            previewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            previewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            CaptureRequest.Builder builder = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            builder.addTarget(previewSurface);
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
 
             backCamera.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(@NonNull CameraCaptureSession session) {
                     backSession = session;
-                    try { session.setRepeatingRequest(previewBuilder.build(), null, cameraHandler); }
+                    try { session.setRepeatingRequest(builder.build(), null, cameraHandler); }
                     catch (CameraAccessException e) { e.printStackTrace(); }
                 }
                 @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
@@ -310,18 +344,19 @@ public class MainActivity extends AppCompatActivity {
         if (frontCamera == null || !textureFront.isAvailable()) return;
         try {
             SurfaceTexture st = textureFront.getSurfaceTexture();
-            st.setDefaultBufferSize(1280, 720);
+            // Buffer cuadrado: la cámara frontal llena el círculo perfectamente
+            st.setDefaultBufferSize(720, 720);
             Surface previewSurface = new Surface(st);
 
-            CaptureRequest.Builder previewBuilder = frontCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            previewBuilder.addTarget(previewSurface);
-            previewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            previewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            CaptureRequest.Builder builder = frontCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            builder.addTarget(previewSurface);
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
 
             frontCamera.createCaptureSession(Arrays.asList(previewSurface), new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(@NonNull CameraCaptureSession session) {
                     frontSession = session;
-                    try { session.setRepeatingRequest(previewBuilder.build(), null, cameraHandler); }
+                    try { session.setRepeatingRequest(builder.build(), null, cameraHandler); }
                     catch (CameraAccessException e) { e.printStackTrace(); }
                 }
                 @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
@@ -331,17 +366,14 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== FILTROS =====
 
-    private void applyFilter(int filterIdx) {
-        currentFilter = filterIdx;
-        String name = FILTER_DATA[filterIdx][0];
-        String color = FILTER_DATA[filterIdx][1];
-        filterNameView.setText(name);
-
-        if (filterIdx == FILTER_NORMAL) {
+    private void applyFilter(int idx) {
+        currentFilter = idx;
+        filterNameView.setText(FILTER_DATA[idx][0]);
+        if (idx == FILTER_NORMAL) {
             filterOverlay.setVisibility(View.GONE);
         } else {
             filterOverlay.setVisibility(View.VISIBLE);
-            filterOverlay.setBackgroundColor(Color.parseColor(color));
+            filterOverlay.setBackgroundColor(Color.parseColor(FILTER_DATA[idx][1]));
         }
     }
 
@@ -362,50 +394,20 @@ public class MainActivity extends AppCompatActivity {
         ByteBuffer buf = image.getPlanes()[0].getBuffer();
         byte[] bytes = new byte[buf.remaining()];
         buf.get(bytes);
-
-        // Decodificar y aplicar efectos
         Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
         if (bmp == null) return;
-
-        // Capturar frame frontal también
-        Bitmap frontBmp = textureFront.getBitmap();
-
-        // Crear imagen merged (trasera arriba, frontal abajo)
-        Bitmap merged = createMergedPhoto(bmp, frontBmp);
-
-        // Aplicar filtro de color
-        Bitmap filtered = applyColorFilter(merged, currentFilter);
-
-        // Guardar en galería
-        saveToGallery(filtered, false);
-        runOnUiThread(() -> Toast.makeText(this, "Foto guardada", Toast.LENGTH_SHORT).show());
-    }
-
-    private Bitmap createMergedPhoto(Bitmap back, Bitmap front) {
-        int w = back.getWidth();
-        int totalH = back.getHeight() + (front != null ? front.getHeight() : 0);
-        Bitmap merged = Bitmap.createBitmap(w, totalH, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(merged);
-        canvas.drawBitmap(back, 0, 0, null);
-        if (front != null) {
-            Bitmap scaledFront = Bitmap.createScaledBitmap(front, w, front.getHeight(), true);
-            canvas.drawBitmap(scaledFront, 0, back.getHeight(), null);
-        }
-        // Línea divisora
-        Paint p = new Paint();
-        p.setColor(Color.WHITE);
-        p.setStrokeWidth(6f);
-        canvas.drawLine(0, back.getHeight(), w, back.getHeight(), p);
-        return merged;
+        Bitmap filtered = applyColorFilter(bmp, currentFilter);
+        saveToGallery(filtered);
+        runOnUiThread(() -> Toast.makeText(this, "📸 Foto guardada", Toast.LENGTH_SHORT).show());
     }
 
     private Bitmap applyColorFilter(Bitmap src, int filter) {
         if (filter == FILTER_NORMAL) return src;
+        if (filter == FILTER_DISTORT) return applyDistortion(src);
         Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
         Canvas canvas = new Canvas(out);
         Paint paint = new Paint();
         ColorMatrix cm = new ColorMatrix();
-
         switch (filter) {
             case FILTER_VIVID:
                 cm.setSaturation(2.5f);
@@ -413,67 +415,48 @@ public class MainActivity extends AppCompatActivity {
             case FILTER_BW:
                 cm.setSaturation(0f);
                 break;
-            case FILTER_WARM:
-                float[] warmMatrix = {
-                    1.2f, 0,    0,    0, 20,
-                    0,    1.0f, 0,    0, 0,
-                    0,    0,    0.8f, 0, -10,
-                    0,    0,    0,    1, 0
-                };
-                cm.set(warmMatrix);
+            case FILTER_WARM: {
+                float[] m = {1.2f,0,0,0,20, 0,1f,0,0,0, 0,0,0.8f,0,-10, 0,0,0,1,0};
+                cm.set(m);
                 break;
-            case FILTER_COOL:
-                float[] coolMatrix = {
-                    0.8f, 0,    0,    0, -10,
-                    0,    1.0f, 0,    0, 0,
-                    0,    0,    1.3f, 0, 20,
-                    0,    0,    0,    1, 0
-                };
-                cm.set(coolMatrix);
+            }
+            case FILTER_COOL: {
+                float[] m = {0.8f,0,0,0,-10, 0,1f,0,0,0, 0,0,1.3f,0,20, 0,0,0,1,0};
+                cm.set(m);
                 break;
-            case FILTER_DISTORT:
-                return applyDistortion(src);
+            }
         }
-
         paint.setColorFilter(new ColorMatrixColorFilter(cm));
         canvas.drawBitmap(src, 0, 0, paint);
         return out;
     }
 
     private Bitmap applyDistortion(Bitmap src) {
-        int w = src.getWidth();
-        int h = src.getHeight();
+        int w = src.getWidth(), h = src.getHeight();
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        int[] srcPixels = new int[w * h];
-        int[] dstPixels = new int[w * h];
-        src.getPixels(srcPixels, 0, w, 0, 0, w, h);
-        float cx = w / 2f, cy = h / 2f;
-        float strength = 0.0003f;
-
+        int[] srcPx = new int[w * h], dstPx = new int[w * h];
+        src.getPixels(srcPx, 0, w, 0, 0, w, h);
+        float cx = w / 2f, cy = h / 2f, k = 0.0003f;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                float dx = x - cx;
-                float dy = y - cy;
-                float r2 = dx * dx + dy * dy;
-                float factor = 1.0f + strength * r2;
-                int sx = (int)(cx + dx * factor);
-                int sy = (int)(cy + dy * factor);
-                sx = Math.max(0, Math.min(w - 1, sx));
-                sy = Math.max(0, Math.min(h - 1, sy));
-                dstPixels[y * w + x] = srcPixels[sy * w + sx];
+                float dx = x - cx, dy = y - cy;
+                float f = 1f + k * (dx * dx + dy * dy);
+                int sx = Math.max(0, Math.min(w-1, (int)(cx + dx * f)));
+                int sy = Math.max(0, Math.min(h-1, (int)(cy + dy * f)));
+                dstPx[y * w + x] = srcPx[sy * w + sx];
             }
         }
-        out.setPixels(dstPixels, 0, w, 0, 0, w, h);
+        out.setPixels(dstPx, 0, w, 0, 0, w, h);
         return out;
     }
 
-    private void saveToGallery(Bitmap bmp, boolean isVideo) {
-        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.DISPLAY_NAME, "DUALCAM_" + timestamp + ".jpg");
-        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DualCam");
-        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+    private void saveToGallery(Bitmap bmp) {
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        ContentValues cv = new ContentValues();
+        cv.put(MediaStore.Images.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".jpg");
+        cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DualCam");
+        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
         if (uri != null) {
             try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                 bmp.compress(Bitmap.CompressFormat.JPEG, 95, os);
@@ -486,9 +469,9 @@ public class MainActivity extends AppCompatActivity {
     private void startRecording() {
         if (backCamera == null) return;
         try {
-            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
             ContentValues cv = new ContentValues();
-            cv.put(MediaStore.Video.Media.DISPLAY_NAME, "DUALCAM_" + timestamp + ".mp4");
+            cv.put(MediaStore.Video.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".mp4");
             cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
             cv.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/DualCam");
             recordingUri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
@@ -499,78 +482,73 @@ public class MainActivity extends AppCompatActivity {
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setVideoSize(1280, 720);
+            mediaRecorder.setVideoSize(720, 1280);
             mediaRecorder.setVideoFrameRate(30);
             mediaRecorder.setVideoEncodingBitRate(5_000_000);
-
             java.io.FileDescriptor fd = getContentResolver().openFileDescriptor(recordingUri, "w").getFileDescriptor();
             mediaRecorder.setOutputFile(fd);
             mediaRecorder.prepare();
 
-            // Recrear sesión con superficie de MediaRecorder
             SurfaceTexture st = textureBack.getSurfaceTexture();
-            st.setDefaultBufferSize(1280, 720);
+            st.setDefaultBufferSize(720, 1280);
             Surface previewSurface = new Surface(st);
-            Surface recorderSurface = mediaRecorder.getSurface();
+            Surface recSurface = mediaRecorder.getSurface();
 
-            CaptureRequest.Builder builder = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-            builder.addTarget(previewSurface);
-            builder.addTarget(recorderSurface);
-            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+            CaptureRequest.Builder b = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            b.addTarget(previewSurface);
+            b.addTarget(recSurface);
+            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
 
-            backCamera.createCaptureSession(Arrays.asList(previewSurface, recorderSurface),
+            backCamera.createCaptureSession(Arrays.asList(previewSurface, recSurface),
                 new CameraCaptureSession.StateCallback() {
                     @Override public void onConfigured(@NonNull CameraCaptureSession session) {
                         backSession = session;
                         try {
-                            session.setRepeatingRequest(builder.build(), null, cameraHandler);
+                            session.setRepeatingRequest(b.build(), null, cameraHandler);
                             mediaRecorder.start();
                             isRecording = true;
                             runOnUiThread(() -> {
                                 recIndicator.setVisibility(View.VISIBLE);
                                 btnRecord.setText("⏹");
                                 btnRecord.setTextColor(Color.WHITE);
+                                btnRecord.setStrokeColor(android.content.res.ColorStateList.valueOf(Color.WHITE));
                             });
                         } catch (CameraAccessException e) { e.printStackTrace(); }
                     }
-                    @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error al iniciar grabación", Toast.LENGTH_SHORT).show());
-                    }
+                    @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) {}
                 }, cameraHandler);
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(this, "Error al grabar: " + e.getMessage(), Toast.LENGTH_SHORT).show());
         }
     }
 
     private void stopRecording() {
         if (!isRecording || mediaRecorder == null) return;
-        try {
-            mediaRecorder.stop();
-            mediaRecorder.reset();
-            mediaRecorder.release();
-            mediaRecorder = null;
-        } catch (Exception e) { e.printStackTrace(); }
+        try { mediaRecorder.stop(); mediaRecorder.reset(); mediaRecorder.release(); }
+        catch (Exception ignored) {}
+        mediaRecorder = null;
         isRecording = false;
         runOnUiThread(() -> {
             recIndicator.setVisibility(View.GONE);
             btnRecord.setText("⏺");
             btnRecord.setTextColor(Color.parseColor("#FF4444"));
-            Toast.makeText(this, "Video guardado", Toast.LENGTH_SHORT).show();
+            btnRecord.setStrokeColor(android.content.res.ColorStateList.valueOf(Color.parseColor("#FF4444")));
+            Toast.makeText(this, "🎬 Video guardado", Toast.LENGTH_SHORT).show();
         });
-        // Restaurar sesión de preview
         createBackSession();
     }
 
     // ===== STICKERS =====
 
     private void showStickerPicker() {
-        String[] emojis = {"😂", "😍", "🔥", "✨", "💀", "🤡", "😎", "👻", "💪", "🫠",
-                           "❤️", "💥", "⭐", "🎉", "🤔", "😤", "🥵", "😈", "🤩", "💫"};
-        new AlertDialog.Builder(this)
+        String[] emojis = {"😂","😍","🔥","✨","💀","🤡","😎","👻","💪","🫠",
+                           "❤️","💥","⭐","🎉","🤔","😤","🥵","😈","🤩","💫",
+                           "🌈","🦋","🏆","🎸","🍕","🌙","☀️","🎯","🦄","💎"};
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_MinWidth)
             .setTitle("Agregar sticker")
-            .setItems(emojis, (d, which) -> stickerView.addSticker(emojis[which]))
-            .setNeutralButton("Limpiar todo", (d, w) -> stickerView.clearStickers())
+            .setItems(emojis, (d, w) -> stickerView.addSticker(emojis[w]))
+            .setNeutralButton("Limpiar", (d, w) -> stickerView.clearStickers())
             .show();
     }
 
@@ -588,17 +566,17 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         if (hasPermissions()) {
             startCameraThread();
-            if (textureBack.isAvailable()) openCamera(backCameraId, true);
+            if (textureBack.isAvailable())  openCamera(backCameraId, true);
             if (textureFront.isAvailable()) openCamera(frontCameraId, false);
         }
     }
 
     private void closeCamera() {
         if (isRecording) stopRecording();
-        if (backSession != null) { try { backSession.stopRepeating(); } catch (Exception ignored) {} backSession.close(); backSession = null; }
+        if (backSession  != null) { try { backSession.stopRepeating();  } catch (Exception ignored) {} backSession.close();  backSession  = null; }
         if (frontSession != null) { try { frontSession.stopRepeating(); } catch (Exception ignored) {} frontSession.close(); frontSession = null; }
-        if (backCamera != null) { backCamera.close(); backCamera = null; }
-        if (frontCamera != null) { frontCamera.close(); frontCamera = null; }
-        if (imageReader != null) { imageReader.close(); imageReader = null; }
+        if (backCamera   != null) { backCamera.close();   backCamera   = null; }
+        if (frontCamera  != null) { frontCamera.close();  frontCamera  = null; }
+        if (imageReader  != null) { imageReader.close();  imageReader  = null; }
     }
 }

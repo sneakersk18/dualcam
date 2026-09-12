@@ -6,8 +6,8 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- TRASERA: pantalla completa -->
-    <com.dualcam.AutoFitTextureView
+    <!-- TRASERA: ocupa toda la pantalla -->
+    <TextureView
         android:id="@+id/texture_back"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -16,19 +16,18 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Overlay de filtro (encima de cámara trasera) -->
+    <!-- Overlay de filtro (cubre todo) -->
     <View
         android:id="@+id/filter_overlay"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:alpha="0.3"
         android:visibility="gone"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Capa de stickers -->
+    <!-- Capa de stickers (cubre todo) -->
     <com.dualcam.StickerView
         android:id="@+id/sticker_view"
         android:layout_width="0dp"
@@ -38,27 +37,23 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- FRONTAL: pequeña flotante circular (draggable, esquina superior derecha) -->
+    <!-- FRONTAL: burbuja circular flotante (top-right, draggable) -->
     <com.dualcam.CircleFrameLayout
         android:id="@+id/pip_container"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
-        android:background="#000000"
-        android:elevation="8dp"
+        android:layout_width="150dp"
+        android:layout_height="150dp"
+        android:elevation="12dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp">
+        android:layout_marginTop="20dp"
+        android:layout_marginEnd="20dp">
 
-        <com.dualcam.AutoFitTextureView
+        <TextureView
             android:id="@+id/texture_front"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_gravity="center"
-            android:scaleX="1.4"
-            android:scaleY="1.4" />
+            android:layout_height="match_parent" />
 
-        <!-- Borde circular -->
+        <!-- Borde negro 75% opacidad -->
         <View
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -66,25 +61,26 @@
 
     </com.dualcam.CircleFrameLayout>
 
-    <!-- Indicador REC -->
+    <!-- Indicador REC (top-left) -->
     <TextView
         android:id="@+id/rec_indicator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="● REC"
-        android:textColor="#FF0000"
-        android:textSize="14sp"
+        android:textColor="#FF3B30"
+        android:textSize="13sp"
         android:textStyle="bold"
-        android:background="#88000000"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="4dp"
+        android:letterSpacing="0.1"
+        android:background="@drawable/badge_bg"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="5dp"
         android:visibility="gone"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        android:layout_marginTop="12dp"
-        android:layout_marginStart="12dp" />
+        android:layout_marginTop="20dp"
+        android:layout_marginStart="16dp" />
 
-    <!-- Nombre del filtro activo -->
+    <!-- Nombre del filtro activo (sobre la barra) -->
     <TextView
         android:id="@+id/filter_name"
         android:layout_width="wrap_content"
@@ -92,80 +88,115 @@
         android:text="NORMAL"
         android:textColor="#FFFFFF"
         android:textSize="11sp"
-        android:background="#66000000"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="4dp"
+        android:letterSpacing="0.15"
+        android:background="@drawable/badge_bg"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="5dp"
         app:layout_constraintBottom_toTopOf="@id/controls_bar"
         app:layout_constraintStart_toStartOf="parent"
         android:layout_marginBottom="8dp"
-        android:layout_marginStart="12dp" />
+        android:layout_marginStart="16dp" />
 
-    <!-- Barra de controles inferior -->
+    <!-- ======================== BARRA DE CONTROLES ======================== -->
     <LinearLayout
         android:id="@+id/controls_bar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#CC000000"
-        android:paddingBottom="12dp"
+        android:background="@drawable/controls_bg"
+        android:paddingTop="10dp"
+        android:paddingBottom="24dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Fila de filtros -->
+        <!-- Fila de filtros (scroll horizontal) -->
         <HorizontalScrollView
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:scrollbars="none">
+            android:layout_height="44dp"
+            android:scrollbars="none"
+            android:overScrollMode="never">
             <LinearLayout
                 android:id="@+id/filters_row"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingHorizontal="8dp" />
+                android:paddingHorizontal="12dp"
+                android:divider="@null" />
         </HorizontalScrollView>
 
-        <!-- Botones principales -->
+        <!-- Separador sutil -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#22FFFFFF"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="10dp"
+            android:layout_marginHorizontal="24dp" />
+
+        <!-- Fila de botones: sticker | captura | record -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="72dp"
+            android:layout_height="80dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingHorizontal="16dp">
+            android:paddingHorizontal="24dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_sticker"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <!-- Botón sticker -->
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="😀"
-                android:textSize="22sp"
-                android:textColor="#FFFFFF"
-                android:strokeColor="#FFFFFF"
-                android:layout_marginHorizontal="4dp" />
+                android:gravity="center">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_sticker"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:text="😀"
+                    android:textSize="22sp"
+                    android:backgroundTint="#33FFFFFF"
+                    app:cornerRadius="28dp"
+                    app:rippleColor="#44FFFFFF" />
+            </LinearLayout>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_capture"
-                android:layout_width="68dp"
-                android:layout_height="68dp"
-                android:layout_marginHorizontal="12dp"
-                android:backgroundTint="#FFFFFF"
-                android:text=""
-                app:cornerRadius="34dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_record"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <!-- Botón captura (centro, más grande) -->
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="⏺"
-                android:textSize="22sp"
-                android:textColor="#FF4444"
-                android:strokeColor="#FF4444"
-                android:layout_marginHorizontal="4dp" />
+                android:gravity="center">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_capture"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:backgroundTint="#FFFFFF"
+                    android:text=""
+                    android:elevation="6dp"
+                    app:cornerRadius="38dp"
+                    app:rippleColor="#44000000"
+                    app:strokeColor="#CCCCCC"
+                    app:strokeWidth="3dp" />
+            </LinearLayout>
+
+            <!-- Botón record -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_record"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:text="⏺"
+                    android:textSize="22sp"
+                    android:backgroundTint="#33FF4444"
+                    app:cornerRadius="28dp"
+                    app:strokeColor="#FF4444"
+                    app:strokeWidth="2dp"
+                    app:rippleColor="#44FF4444" />
+            </LinearLayout>
 
         </LinearLayout>
 
