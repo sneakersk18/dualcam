@@ -664,8 +664,21 @@ public class MainActivity extends AppCompatActivity {
                 frontBitmapUpdater = new Runnable() {
                     @Override public void run() {
                         if (isRecording && dualEncoder != null) {
-                            Bitmap bmp = textureFront.getBitmap();
-                            if (bmp != null) dualEncoder.updateFrontBitmap(bmp);
+                            Bitmap raw = textureFront.getBitmap();
+                            if (raw != null) {
+                                // getBitmap() ignores setTransform() centerCrop matrix.
+                                // Manually crop to 9:16 center slice then scale to square.
+                                int w = raw.getWidth(), h = raw.getHeight();
+                                int cropH = (int)(h * (float) w / (w * 16f / 9f));
+                                if (cropH < 1) cropH = 1;
+                                if (cropH > h) cropH = h;
+                                int cropY = (h - cropH) / 2;
+                                Bitmap cropped = Bitmap.createBitmap(raw, 0, cropY, w, cropH);
+                                raw.recycle();
+                                Bitmap square = Bitmap.createScaledBitmap(cropped, w, w, true);
+                                cropped.recycle();
+                                dualEncoder.updateFrontBitmap(square);
+                            }
                             frontBitmapHandler.postDelayed(this, 66);
                         }
                     }
