@@ -6,10 +6,15 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ImageFormat;
 import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -17,7 +22,6 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
-import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Bundle;
@@ -31,9 +35,8 @@ import android.view.ScaleGestureDetector;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.widget.BaseAdapter;
-import android.widget.GridView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,7 +50,6 @@ import com.google.android.material.button.MaterialButton;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -77,7 +79,6 @@ public class MainActivity extends AppCompatActivity {
     private String backCameraId, frontCameraId;
     private CameraDevice backCamera, frontCamera;
     private CameraCaptureSession backSession, frontSession;
-    private ImageReader imageReader;
     private Surface backPreviewSurface;
 
     // Thread
@@ -327,7 +328,7 @@ public class MainActivity extends AppCompatActivity {
             filterOverlay.setVisibility(View.VISIBLE);
             filterOverlay.setBackgroundColor(0xAAFFFFFF);
             filterOverlay.postDelayed(() -> filterOverlay.setVisibility(View.GONE), 120);
-            takePhoto();
+            takeDualPhoto();
         });
         btnRecord.setOnClickListener(v -> { if (isRecording) stopRecording(); else startRecording(); });
         btnSticker.setOnClickListener(v -> showStickerPicker());
@@ -413,13 +414,7 @@ public class MainActivity extends AppCompatActivity {
             applyFillTransform(textureBack, 720, 1280);
             backPreviewSurface = new Surface(st);
 
-            imageReader = ImageReader.newInstance(1280, 720, ImageFormat.JPEG, 2);
-            imageReader.setOnImageAvailableListener(reader -> {
-                android.media.Image img = reader.acquireLatestImage();
-                if (img != null) { savePhoto(img); img.close(); }
-            }, cameraHandler);
-
-            List<Surface> surfaces = new ArrayList<>(Arrays.asList(backPreviewSurface, imageReader.getSurface()));
+            List<Surface> surfaces = new ArrayList<>(Arrays.asList(backPreviewSurface));
 
             CaptureRequest.Builder b = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             b.addTarget(backPreviewSurface);
@@ -461,42 +456,68 @@ public class MainActivity extends AppCompatActivity {
         } catch (CameraAccessException e) { e.printStackTrace(); }
     }
 
-    // ===== FOTO =====
-    private void takePhoto() {
-        if (backSession == null || imageReader == null) return;
-        try {
-            CaptureRequest.Builder cb = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            cb.addTarget(imageReader.getSurface());
-            cb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            cb.set(CaptureRequest.JPEG_QUALITY, (byte) 95);
-            if (currentZoom > 1.0f) {
-                CameraCharacteristics ch = cameraManager.getCameraCharacteristics(backCameraId);
-                Rect sensor = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-                if (sensor != null) {
-                    int cw = (int)(sensor.width() / currentZoom), ch2 = (int)(sensor.height() / currentZoom);
-                    cb.set(CaptureRequest.SCALER_CROP_REGION, new Rect(sensor.centerX()-cw/2, sensor.centerY()-ch2/2, sensor.centerX()+cw/2, sensor.centerY()+ch2/2));
-                }
-            }
-            backSession.capture(cb.build(), null, cameraHandler);
-        } catch (CameraAccessException e) { e.printStackTrace(); }
-    }
+    // ===== FOTO DUAL (composite trasera + frontal circular) =====
+    private void takeDualPhoto() {
+        // Captura los frames actuales de ambas TextureViews en el hilo UI
+        Bitmap rear  = textureBack.getBitmap();
+        Bitmap front = textureFront.getBitmap();
+        if (rear == null) return;
 
-    private void savePhoto(android.media.Image image) {
-        ByteBuffer buf = image.getPlanes()[0].getBuffer();
-        byte[] bytes = new byte[buf.remaining()];
-        buf.get(bytes);
-        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-        ContentValues cv = new ContentValues();
-        cv.put(MediaStore.Images.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".jpg");
-        cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DualCam");
-        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
-        if (uri != null) {
-            try (OutputStream os = getContentResolver().openOutputStream(uri)) {
-                os.write(bytes);
-            } catch (IOException e) { e.printStackTrace(); }
-        }
-        runOnUiThread(() -> Toast.makeText(this, "📸 Foto guardada", Toast.LENGTH_SHORT).show());
+        new Thread(() -> {
+            Bitmap output = rear.copy(Bitmap.Config.ARGB_8888, true);
+            Canvas canvas = new Canvas(output);
+
+            if (front != null) {
+                // PiP: 150dp circular en la esquina superior derecha, margen 20dp
+                int pipPx  = dpToPx(150);
+                int margin = dpToPx(20);
+
+                // Recortar cuadrado central del frame frontal
+                int side = Math.min(front.getWidth(), front.getHeight());
+                int fx = (front.getWidth()  - side) / 2;
+                int fy = (front.getHeight() - side) / 2;
+                Bitmap square  = Bitmap.createBitmap(front, fx, fy, side, side);
+                Bitmap scaled  = Bitmap.createScaledBitmap(square, pipPx, pipPx, true);
+
+                // Hacer circular con PorterDuff
+                Bitmap circular = Bitmap.createBitmap(pipPx, pipPx, Bitmap.Config.ARGB_8888);
+                Canvas cc = new Canvas(circular);
+                Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                cc.drawOval(new RectF(0, 0, pipPx, pipPx), p);
+                p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+                cc.drawBitmap(scaled, 0, 0, p);
+                p.setXfermode(null);
+
+                // Dibujar en la esquina superior derecha
+                int pipX = output.getWidth() - pipPx - margin;
+                int pipY = margin;
+                canvas.drawBitmap(circular, pipX, pipY, null);
+
+                // Borde negro 75% opacidad
+                Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
+                border.setStyle(Paint.Style.STROKE);
+                border.setColor(0xBF000000);
+                border.setStrokeWidth(dpToPx(3));
+                canvas.drawOval(pipX, pipY, pipX + pipPx, pipY + pipPx, border);
+
+                square.recycle(); scaled.recycle(); circular.recycle(); front.recycle();
+            }
+
+            // Guardar en galería
+            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Images.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".jpg");
+            cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DualCam");
+            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+            if (uri != null) {
+                try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                    output.compress(Bitmap.CompressFormat.JPEG, 95, os);
+                } catch (IOException e) { e.printStackTrace(); }
+            }
+            output.recycle(); rear.recycle();
+            runOnUiThread(() -> Toast.makeText(this, "📸 Foto guardada", Toast.LENGTH_SHORT).show());
+        }).start();
     }
 
     // ===== VIDEO =====
@@ -578,37 +599,49 @@ public class MainActivity extends AppCompatActivity {
             "🌈","🦋","🏆","🎸","🍕","🌙","☀️","🎯","🦄","💎",
             "🐱","🐶","🐸","🍓","🍩","🎃","🦊","🐧","🌺","🎀"
         };
+        final int COLS = 5;
 
-        GridView grid = new GridView(this);
-        grid.setNumColumns(5);
-        grid.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
-        grid.setVerticalSpacing(dpToPx(4));
-        grid.setHorizontalSpacing(dpToPx(4));
+        // Construir cuadrícula con LinearLayout (más fiable que GridView en AlertDialog)
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        grid.setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(4));
 
-        grid.setAdapter(new BaseAdapter() {
-            @Override public int getCount() { return emojis.length; }
-            @Override public Object getItem(int pos) { return emojis[pos]; }
-            @Override public long getItemId(int pos) { return pos; }
-            @Override public View getView(int pos, View convertView, android.view.ViewGroup parent) {
-                TextView tv = (convertView instanceof TextView) ? (TextView) convertView : new TextView(MainActivity.this);
-                tv.setText(emojis[pos]);
-                tv.setTextSize(28f);
-                tv.setGravity(Gravity.CENTER);
-                tv.setPadding(0, dpToPx(6), 0, dpToPx(6));
-                return tv;
+        AlertDialog[] holder = new AlertDialog[1];
+
+        for (int r = 0; r < Math.ceil((double) emojis.length / COLS); r++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int c = 0; c < COLS; c++) {
+                int idx = r * COLS + c;
+                TextView cell = new TextView(this);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(58), 1f);
+                cell.setLayoutParams(lp);
+                cell.setGravity(Gravity.CENTER);
+                if (idx < emojis.length) {
+                    cell.setText(emojis[idx]);
+                    cell.setTextSize(26f);
+                    final String emoji = emojis[idx];
+                    cell.setOnClickListener(v -> {
+                        stickerView.addSticker(emoji);
+                        // mantener diálogo abierto (como WhatsApp)
+                    });
+                    cell.setBackgroundResource(android.R.drawable.list_selector_background);
+                }
+                row.addView(cell);
             }
-        });
+            grid.addView(row);
+        }
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        ScrollView sv = new ScrollView(this);
+        sv.addView(grid);
+
+        holder[0] = new AlertDialog.Builder(this)
             .setTitle("Stickers")
-            .setView(grid)
+            .setView(sv)
             .setNeutralButton("Limpiar todo", (d, w) -> stickerView.clearStickers())
             .setNegativeButton("Cerrar", null)
             .create();
-
-        grid.setOnItemClickListener((parent, view, pos, id) -> stickerView.addSticker(emojis[pos]));
-
-        dialog.show();
+        holder[0].show();
     }
 
     // ===== LIFECYCLE =====
@@ -637,7 +670,6 @@ public class MainActivity extends AppCompatActivity {
         if (frontSession != null) { try { frontSession.stopRepeating(); } catch (Exception ignored) {} frontSession.close(); frontSession = null; }
         if (backCamera   != null) { backCamera.close();  backCamera  = null; }
         if (frontCamera  != null) { frontCamera.close(); frontCamera = null; }
-        if (imageReader  != null) { imageReader.close(); imageReader = null; }
         if (backPreviewSurface != null) { backPreviewSurface.release(); backPreviewSurface = null; }
     }
 }
