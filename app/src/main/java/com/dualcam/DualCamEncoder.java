@@ -34,12 +34,16 @@ public class DualCamEncoder {
     public static final int WIDTH  = 720;
     public static final int HEIGHT = 1280;
 
-    // PiP: 33% of width = 238px diameter, 20px margin, top-right corner
-    // NDC x=[0.2833, 0.9444]  NDC y=[0.5969, 0.9688]  (y=+1 is top)
+    // PiP circle: 238px diameter, top-right, 20px margin
+    // Quad X is 238px wide (NDC x=[0.2833, 0.9444])
+    // Quad Y is 423px tall (238 * 1280/720) so the portrait content
+    // fills it at the correct aspect ratio — circle clip shows the center.
+    // Circle center: cx=581, cy=1141 (gl_FragCoord, y=0 at bottom)
     private static final float PIP_X0 = 0.2833f;
     private static final float PIP_X1 = 0.9444f;
-    private static final float PIP_Y0 = 0.5969f;
-    private static final float PIP_Y1 = 0.9688f;
+    // Center Y NDC = 0.7828; half-height NDC = (423/2)/640 = 0.3305
+    private static final float PIP_Y0 = 0.4523f;   // 0.7828 - 0.3305
+    private static final float PIP_Y1 = 1.1133f;   // 0.7828 + 0.3305  (clips at viewport top)
 
     // Circle center in gl_FragCoord pixels (y=0 at bottom of 720x1280 framebuffer)
     // cx = 720 - 20 - 119 = 581,  cy = 1280 - 20 - 119 = 1141,  r = 119

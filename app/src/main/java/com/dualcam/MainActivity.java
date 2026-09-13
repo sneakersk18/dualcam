@@ -475,10 +475,12 @@ public class MainActivity extends AppCompatActivity {
                 int pipPx  = dpToPx(150);
                 int margin = dpToPx(20);
 
-                // Recortar cuadrado central del frame frontal
-                int side = Math.min(front.getWidth(), front.getHeight());
-                int fx = (front.getWidth()  - side) / 2;
-                int fy = (front.getHeight() - side) / 2;
+                // Front bitmap is portrait (effective 720×1280).
+                // Crop center square (720×720) then scale to pipPx.
+                int fw = front.getWidth(), fh = front.getHeight();
+                int side = Math.min(fw, fh); // square side = shorter dimension
+                int fx = (fw - side) / 2;
+                int fy = (fh - side) / 2;
                 Bitmap square  = Bitmap.createBitmap(front, fx, fy, side, side);
                 Bitmap scaled  = Bitmap.createScaledBitmap(square, pipPx, pipPx, true);
 
