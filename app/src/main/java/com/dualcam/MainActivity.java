@@ -51,6 +51,7 @@ import com.google.android.material.button.MaterialButton;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
+import java.util.concurrent.CountDownLatch;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -87,6 +88,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Recording
     private MediaRecorder mediaRecorder;
+    private DualCamEncoder dualEncoder;
     private boolean isRecording = false;
     private Uri recordingUri;
 
@@ -222,6 +224,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyZoom() {
+        if (isRecording) return;
         if (backCamera == null || backSession == null || backCameraId == null) return;
         try {
             CameraCharacteristics ch = cameraManager.getCameraCharacteristics(backCameraId);
@@ -520,75 +523,127 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    // ===== VIDEO =====
+    // ===== VIDEO (dual camera via OpenGL compositor) =====
     private void startRecording() {
-        if (backCamera == null) return;
-        try {
-            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            ContentValues cv = new ContentValues();
-            cv.put(MediaStore.Video.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".mp4");
-            cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-            cv.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/DualCam");
-            recordingUri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
+        if (backCamera == null || frontCamera == null) return;
+        new Thread(() -> {
+            try {
+                // Output file
+                String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.Video.Media.DISPLAY_NAME, "DUALCAM_" + ts + ".mp4");
+                cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                cv.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/DualCam");
+                recordingUri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
 
-            mediaRecorder = new MediaRecorder();
-            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
-            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setVideoSize(1280, 720);
-            mediaRecorder.setVideoFrameRate(30);
-            mediaRecorder.setVideoEncodingBitRate(8_000_000);
-            java.io.FileDescriptor fd = getContentResolver().openFileDescriptor(recordingUri, "w").getFileDescriptor();
-            mediaRecorder.setOutputFile(fd);
-            mediaRecorder.prepare();
+                // MediaRecorder
+                mediaRecorder = new MediaRecorder();
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                mediaRecorder.setVideoSize(DualCamEncoder.WIDTH, DualCamEncoder.HEIGHT);
+                mediaRecorder.setVideoFrameRate(30);
+                mediaRecorder.setVideoEncodingBitRate(8_000_000);
+                java.io.FileDescriptor fd = getContentResolver().openFileDescriptor(recordingUri, "w").getFileDescriptor();
+                mediaRecorder.setOutputFile(fd);
+                mediaRecorder.prepare();
 
-            SurfaceTexture st = textureBack.getSurfaceTexture();
-            st.setDefaultBufferSize(1280, 720);
-            backPreviewSurface = new Surface(st);
-            Surface recSurface = mediaRecorder.getSurface();
+                // OpenGL compositor — blocks until EGL ready
+                dualEncoder = new DualCamEncoder();
+                dualEncoder.prepare(mediaRecorder.getSurface());
 
-            CaptureRequest.Builder b = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-            b.addTarget(backPreviewSurface);
-            b.addTarget(recSurface);
-            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+                Surface encBack  = dualEncoder.getBackInputSurface();
+                Surface encFront = dualEncoder.getFrontInputSurface();
 
-            backCamera.createCaptureSession(Arrays.asList(backPreviewSurface, recSurface),
-                new CameraCaptureSession.StateCallback() {
-                    @Override public void onConfigured(@NonNull CameraCaptureSession session) {
-                        backSession = session;
-                        try {
-                            session.setRepeatingRequest(b.build(), null, cameraHandler);
-                            mediaRecorder.start();
-                            isRecording = true;
-                            runOnUiThread(() -> {
-                                recIndicator.setVisibility(View.VISIBLE);
-                                btnRecord.setText("⏹");
-                                btnRecord.setTextColor(Color.WHITE);
-                            });
-                        } catch (CameraAccessException e) { e.printStackTrace(); }
-                    }
-                    @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) {}
-                }, cameraHandler);
-        } catch (Exception e) {
-            e.printStackTrace();
-            runOnUiThread(() -> Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-        }
+                // Re-open back camera session: preview surface + encoder surface
+                if (backSession != null) {
+                    try { backSession.stopRepeating(); } catch (Exception ignored) {}
+                    backSession.close(); backSession = null;
+                }
+                SurfaceTexture bst = textureBack.getSurfaceTexture();
+                bst.setDefaultBufferSize(1280, 720);
+                backPreviewSurface = new Surface(bst);
+                CaptureRequest.Builder bb = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+                bb.addTarget(backPreviewSurface);
+                bb.addTarget(encBack);
+                bb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+                bb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+
+                // Re-open front camera session: preview surface + encoder surface
+                if (frontSession != null) {
+                    try { frontSession.stopRepeating(); } catch (Exception ignored) {}
+                    frontSession.close(); frontSession = null;
+                }
+                SurfaceTexture fst = textureFront.getSurfaceTexture();
+                fst.setDefaultBufferSize(1280, 720);
+                Surface frontPreviewSurface = new Surface(fst);
+                CaptureRequest.Builder fb = frontCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+                fb.addTarget(frontPreviewSurface);
+                fb.addTarget(encFront);
+                fb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+                fb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+
+                // Wait for both sessions before starting encoder + MediaRecorder
+                CountDownLatch latch = new CountDownLatch(2);
+
+                backCamera.createCaptureSession(Arrays.asList(backPreviewSurface, encBack),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override public void onConfigured(@NonNull CameraCaptureSession s) {
+                            backSession = s;
+                            try { s.setRepeatingRequest(bb.build(), null, cameraHandler); } catch (CameraAccessException e) { e.printStackTrace(); }
+                            latch.countDown();
+                        }
+                        @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) { latch.countDown(); }
+                    }, cameraHandler);
+
+                frontCamera.createCaptureSession(Arrays.asList(frontPreviewSurface, encFront),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override public void onConfigured(@NonNull CameraCaptureSession s) {
+                            frontSession = s;
+                            try { s.setRepeatingRequest(fb.build(), null, cameraHandler); } catch (CameraAccessException e) { e.printStackTrace(); }
+                            latch.countDown();
+                        }
+                        @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) { latch.countDown(); }
+                    }, cameraHandler);
+
+                latch.await();
+                dualEncoder.start();
+                mediaRecorder.start();
+                isRecording = true;
+                runOnUiThread(() -> {
+                    recIndicator.setVisibility(View.VISIBLE);
+                    btnRecord.setText("⏹");
+                    btnRecord.setTextColor(Color.WHITE);
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }).start();
     }
 
     private void stopRecording() {
-        if (!isRecording || mediaRecorder == null) return;
-        try { mediaRecorder.stop(); mediaRecorder.reset(); mediaRecorder.release(); } catch (Exception ignored) {}
-        mediaRecorder = null;
+        if (!isRecording) return;
         isRecording = false;
+
+        if (dualEncoder != null) { dualEncoder.stop(); dualEncoder = null; }
+        if (mediaRecorder != null) {
+            try { mediaRecorder.stop(); } catch (Exception ignored) {}
+            try { mediaRecorder.reset(); mediaRecorder.release(); } catch (Exception ignored) {}
+            mediaRecorder = null;
+        }
+
         runOnUiThread(() -> {
             recIndicator.setVisibility(View.GONE);
             btnRecord.setText("⏺");
             btnRecord.setTextColor(Color.parseColor("#FF4444"));
             Toast.makeText(this, "🎬 Video guardado", Toast.LENGTH_SHORT).show();
         });
+
         createBackSession();
+        createFrontSession();
     }
 
     // ===== STICKERS =====
