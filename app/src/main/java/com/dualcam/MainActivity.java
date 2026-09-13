@@ -663,24 +663,25 @@ public class MainActivity extends AppCompatActivity {
                 frontBitmapHandler = new Handler(android.os.Looper.getMainLooper());
                 frontBitmapUpdater = new Runnable() {
                     @Override public void run() {
-                        if (isRecording && dualEncoder != null) {
-                            Bitmap raw = textureFront.getBitmap();
-                            if (raw != null) {
-                                // getBitmap() ignores setTransform() centerCrop matrix.
-                                // Manually crop to 9:16 center slice then scale to square.
-                                int w = raw.getWidth(), h = raw.getHeight();
-                                int cropH = (int)(h * (float) w / (w * 16f / 9f));
-                                if (cropH < 1) cropH = 1;
-                                if (cropH > h) cropH = h;
-                                int cropY = (h - cropH) / 2;
-                                Bitmap cropped = Bitmap.createBitmap(raw, 0, cropY, w, cropH);
-                                raw.recycle();
-                                Bitmap square = Bitmap.createScaledBitmap(cropped, w, w, true);
-                                cropped.recycle();
-                                dualEncoder.updateFrontBitmap(square);
-                            }
-                            frontBitmapHandler.postDelayed(this, 66);
+                        if (!isRecording || dualEncoder == null) return;
+                        int vw = textureFront.getWidth();
+                        int vh = textureFront.getHeight();
+                        if (vw > 0 && vh > 0) {
+                            int[] loc = new int[2];
+                            textureFront.getLocationInWindow(loc);
+                            android.graphics.Rect src = new android.graphics.Rect(
+                                loc[0], loc[1], loc[0] + vw, loc[1] + vh);
+                            Bitmap bmp = Bitmap.createBitmap(vw, vh, Bitmap.Config.ARGB_8888);
+                            android.view.PixelCopy.request(getWindow(), src, bmp, result -> {
+                                if (result == android.view.PixelCopy.SUCCESS
+                                        && isRecording && dualEncoder != null) {
+                                    dualEncoder.updateFrontBitmap(bmp);
+                                } else {
+                                    bmp.recycle();
+                                }
+                            }, frontBitmapHandler);
                         }
+                        frontBitmapHandler.postDelayed(this, 66);
                     }
                 };
                 frontBitmapHandler.post(frontBitmapUpdater);
