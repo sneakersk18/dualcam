@@ -22,6 +22,8 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Bundle;
@@ -91,6 +93,9 @@ public class MainActivity extends AppCompatActivity {
     private DualCamEncoder dualEncoder;
     private boolean isRecording = false;
     private Uri recordingUri;
+    private Handler frontBitmapHandler;
+    private Runnable frontBitmapUpdater;
+    private android.hardware.camera2.params.Face[] detectedFaces;
 
     // Zoom
     private ScaleGestureDetector scaleDetector;
@@ -103,14 +108,17 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton[] effectBtns;
 
     private static final Object[][] EFFECT_DATA = {
-        {FaceEffectView.EFFECT_NONE,    "✖",  "SIN"},
-        {FaceEffectView.EFFECT_HEARTS,  "❤️", "AMOR"},
-        {FaceEffectView.EFFECT_FIRE,    "🔥", "FUEGO"},
-        {FaceEffectView.EFFECT_SPARKS,  "✨", "CHISPAS"},
-        {FaceEffectView.EFFECT_SNOW,    "❄️", "NIEVE"},
-        {FaceEffectView.EFFECT_GLITCH,  "📺", "GLITCH"},
-        {FaceEffectView.EFFECT_NEON,    "💜", "NEON"},
-        {FaceEffectView.EFFECT_VINTAGE, "📷", "RETRO"},
+        {FaceEffectView.EFFECT_NONE,     "✖",  "SIN"},
+        {FaceEffectView.EFFECT_HEARTS,   "❤️", "AMOR"},
+        {FaceEffectView.EFFECT_FIRE,     "🔥", "FUEGO"},
+        {FaceEffectView.EFFECT_SPARKS,   "✨", "CHISPAS"},
+        {FaceEffectView.EFFECT_SNOW,     "❄️", "NIEVE"},
+        {FaceEffectView.EFFECT_GLITCH,   "📺", "GLITCH"},
+        {FaceEffectView.EFFECT_NEON,     "💜", "NEON"},
+        {FaceEffectView.EFFECT_VINTAGE,  "📷", "RETRO"},
+        {FaceEffectView.EFFECT_AR_CROWN,   "👑", "CORONA"},
+        {FaceEffectView.EFFECT_AR_BIGEYES, "👁", "OJOS"},
+        {FaceEffectView.EFFECT_AR_DOG,     "🐶", "PERRO"},
     };
 
     @Override
@@ -410,6 +418,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createBackSession() {
+        createBackSession(null);
+    }
+
+    private void createBackSession(Surface extraSurface) {
         if (backCamera == null || !textureBack.isAvailable()) return;
         try {
             SurfaceTexture st = textureBack.getSurfaceTexture();
@@ -418,21 +430,56 @@ public class MainActivity extends AppCompatActivity {
             backPreviewSurface = new Surface(st);
 
             List<Surface> surfaces = new ArrayList<>(Arrays.asList(backPreviewSurface));
+            if (extraSurface != null) surfaces.add(extraSurface);
 
-            CaptureRequest.Builder b = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            CaptureRequest.Builder b = backCamera.createCaptureRequest(
+                extraSurface != null ? CameraDevice.TEMPLATE_RECORD : CameraDevice.TEMPLATE_PREVIEW);
             b.addTarget(backPreviewSurface);
-            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            if (extraSurface != null) b.addTarget(extraSurface);
+            b.set(CaptureRequest.CONTROL_AF_MODE,
+                extraSurface != null
+                    ? CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                    : CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            b.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                  CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL);
+
+            CameraCaptureSession.CaptureCallback captureCallback =
+                new CameraCaptureSession.CaptureCallback() {
+                    @Override
+                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                   @NonNull CaptureRequest request,
+                                                   @NonNull TotalCaptureResult result) {
+                        android.hardware.camera2.params.Face[] faces =
+                            result.get(CaptureResult.STATISTICS_FACES);
+                        updateFaces(faces);
+                    }
+                };
 
             backCamera.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(@NonNull CameraCaptureSession session) {
                     backSession = session;
-                    try { session.setRepeatingRequest(b.build(), null, cameraHandler); }
+                    try { session.setRepeatingRequest(b.build(), captureCallback, cameraHandler); }
                     catch (CameraAccessException e) { e.printStackTrace(); }
                 }
                 @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
             }, cameraHandler);
         } catch (CameraAccessException e) { e.printStackTrace(); }
+    }
+
+    private void updateFaces(android.hardware.camera2.params.Face[] faces) {
+        detectedFaces = faces;
+        if (faceEffectView != null && faces != null) {
+            try {
+                CameraCharacteristics ch = cameraManager.getCameraCharacteristics(backCameraId);
+                android.graphics.Rect array = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                if (array != null) {
+                    runOnUiThread(() -> faceEffectView.setFaces(faces,
+                        array.width(), array.height(),
+                        textureBack.getWidth(), textureBack.getHeight()));
+                }
+            } catch (CameraAccessException e) { e.printStackTrace(); }
+        }
     }
 
     private void createFrontSession() {
@@ -556,64 +603,75 @@ public class MainActivity extends AppCompatActivity {
                 dualEncoder = new DualCamEncoder();
                 dualEncoder.prepare(mediaRecorder.getSurface());
 
-                Surface encBack  = dualEncoder.getBackInputSurface();
-                Surface encFront = dualEncoder.getFrontInputSurface();
+                Surface encBack = dualEncoder.getBackInputSurface();
 
-                // Re-open back camera session: preview surface + encoder surface
+                // Rebuild only the back camera session to add the encoder surface.
+                // Front camera session stays as-is (preview-only to TextureView).
                 if (backSession != null) {
                     try { backSession.stopRepeating(); } catch (Exception ignored) {}
                     backSession.close(); backSession = null;
                 }
+
+                // Wait for the back session only
+                CountDownLatch latch = new CountDownLatch(1);
+
+                // createBackSession(encBack) handles the full builder + face detect callback
+                // but we need the latch here, so inline the session creation:
                 SurfaceTexture bst = textureBack.getSurfaceTexture();
                 bst.setDefaultBufferSize(1280, 720);
                 backPreviewSurface = new Surface(bst);
+
                 CaptureRequest.Builder bb = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
                 bb.addTarget(backPreviewSurface);
                 bb.addTarget(encBack);
                 bb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
                 bb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+                bb.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                       CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL);
 
-                // Re-open front camera session: preview surface + encoder surface
-                if (frontSession != null) {
-                    try { frontSession.stopRepeating(); } catch (Exception ignored) {}
-                    frontSession.close(); frontSession = null;
-                }
-                SurfaceTexture fst = textureFront.getSurfaceTexture();
-                fst.setDefaultBufferSize(1280, 720);
-                Surface frontPreviewSurface = new Surface(fst);
-                CaptureRequest.Builder fb = frontCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-                fb.addTarget(frontPreviewSurface);
-                fb.addTarget(encFront);
-                fb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
-                fb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
-
-                // Wait for both sessions before starting encoder + MediaRecorder
-                CountDownLatch latch = new CountDownLatch(2);
+                CameraCaptureSession.CaptureCallback recCaptureCallback =
+                    new CameraCaptureSession.CaptureCallback() {
+                        @Override
+                        public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                       @NonNull CaptureRequest request,
+                                                       @NonNull TotalCaptureResult result) {
+                            android.hardware.camera2.params.Face[] faces =
+                                result.get(CaptureResult.STATISTICS_FACES);
+                            updateFaces(faces);
+                        }
+                    };
 
                 backCamera.createCaptureSession(Arrays.asList(backPreviewSurface, encBack),
                     new CameraCaptureSession.StateCallback() {
                         @Override public void onConfigured(@NonNull CameraCaptureSession s) {
                             backSession = s;
-                            try { s.setRepeatingRequest(bb.build(), null, cameraHandler); } catch (CameraAccessException e) { e.printStackTrace(); }
+                            try { s.setRepeatingRequest(bb.build(), recCaptureCallback, cameraHandler); }
+                            catch (CameraAccessException e) { e.printStackTrace(); }
                             latch.countDown();
                         }
-                        @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) { latch.countDown(); }
-                    }, cameraHandler);
-
-                frontCamera.createCaptureSession(Arrays.asList(frontPreviewSurface, encFront),
-                    new CameraCaptureSession.StateCallback() {
-                        @Override public void onConfigured(@NonNull CameraCaptureSession s) {
-                            frontSession = s;
-                            try { s.setRepeatingRequest(fb.build(), null, cameraHandler); } catch (CameraAccessException e) { e.printStackTrace(); }
+                        @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) {
                             latch.countDown();
                         }
-                        @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) { latch.countDown(); }
                     }, cameraHandler);
 
                 latch.await();
-                dualEncoder.start();
                 mediaRecorder.start();
+                dualEncoder.start();
                 isRecording = true;
+
+                // Start front bitmap updater: poll TextureView bitmap every 66ms
+                frontBitmapHandler = new Handler(android.os.Looper.getMainLooper());
+                frontBitmapUpdater = new Runnable() {
+                    @Override public void run() {
+                        if (isRecording && dualEncoder != null) {
+                            Bitmap bmp = textureFront.getBitmap();
+                            if (bmp != null) dualEncoder.updateFrontBitmap(bmp);
+                            frontBitmapHandler.postDelayed(this, 66);
+                        }
+                    }
+                };
+                frontBitmapHandler.post(frontBitmapUpdater);
+
                 runOnUiThread(() -> {
                     recIndicator.setVisibility(View.VISIBLE);
                     btnRecord.setText("⏹");
@@ -630,6 +688,13 @@ public class MainActivity extends AppCompatActivity {
         if (!isRecording) return;
         isRecording = false;
 
+        // Stop front bitmap polling first
+        if (frontBitmapHandler != null && frontBitmapUpdater != null) {
+            frontBitmapHandler.removeCallbacks(frontBitmapUpdater);
+            frontBitmapHandler = null;
+            frontBitmapUpdater = null;
+        }
+
         if (dualEncoder != null) { dualEncoder.stop(); dualEncoder = null; }
         if (mediaRecorder != null) {
             try { mediaRecorder.stop(); } catch (Exception ignored) {}
@@ -644,8 +709,8 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "🎬 Video guardado", Toast.LENGTH_SHORT).show();
         });
 
+        // Front camera session was never changed — only rebuild back session
         createBackSession();
-        createFrontSession();
     }
 
     // ===== STICKERS =====

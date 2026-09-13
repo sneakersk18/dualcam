@@ -23,10 +23,17 @@ public class FaceEffectView extends View {
     public static final int EFFECT_GLITCH  = 5;
     public static final int EFFECT_NEON    = 6;
     public static final int EFFECT_VINTAGE = 7;
+    public static final int EFFECT_AR_CROWN   = 8;
+    public static final int EFFECT_AR_BIGEYES = 9;
+    public static final int EFFECT_AR_DOG     = 10;
 
     private int currentEffect = EFFECT_NONE;
     private final Random rng = new Random();
     private long tick = 0;
+
+    // AR face tracking
+    private android.hardware.camera2.params.Face[] mFaces;
+    private int mSensorW, mSensorH, mViewW, mViewH;
 
     private final Paint pp  = new Paint(Paint.ANTI_ALIAS_FLAG); // particle
     private final Paint tp  = new Paint(Paint.ANTI_ALIAS_FLAG); // text/emoji
@@ -69,6 +76,10 @@ public class FaceEffectView extends View {
         currentEffect = effect;
         hearts.clear(); fire.clear(); sparks.clear(); snow.clear();
         glitchStrips.clear(); glitchCooldown = 0; neonHue = 0f; tick = 0;
+        // Clear face data when switching to non-AR effects
+        if (effect != EFFECT_AR_CROWN && effect != EFFECT_AR_BIGEYES && effect != EFFECT_AR_DOG) {
+            mFaces = null;
+        }
         removeCallbacks(loopRunnable);
         if (effect != EFFECT_NONE) {
             int w = getWidth(), h = getHeight();
@@ -76,6 +87,25 @@ public class FaceEffectView extends View {
             post(loopRunnable);
         }
         invalidate();
+    }
+
+    public void setFaces(android.hardware.camera2.params.Face[] faces,
+                         int sensorW, int sensorH, int viewW, int viewH) {
+        mFaces = faces;
+        mSensorW = sensorW; mSensorH = sensorH;
+        mViewW = viewW; mViewH = viewH;
+        invalidate();
+    }
+
+    // Maps sensor (landscape) coords to view (portrait) coords for sensor_orientation=90.
+    // For a 90° rotated sensor: sensor X axis -> view Y (inverted), sensor Y axis -> view X.
+    private float mapFaceX(float sensorY) {
+        if (mSensorH == 0) return 0;
+        return sensorY / mSensorH * mViewW;
+    }
+    private float mapFaceY(float sensorX) {
+        if (mSensorW == 0) return 0;
+        return (1f - sensorX / mSensorW) * mViewH;
     }
 
     private final Runnable loopRunnable = () -> {
@@ -123,13 +153,16 @@ public class FaceEffectView extends View {
         tick++;
         int w = getWidth(), h = getHeight();
         switch (currentEffect) {
-            case EFFECT_HEARTS:  drawHearts(canvas, w, h);  break;
-            case EFFECT_FIRE:    drawFire(canvas, w, h);    break;
-            case EFFECT_SPARKS:  drawSparks(canvas, w, h);  break;
-            case EFFECT_SNOW:    drawSnow(canvas, w, h);    break;
-            case EFFECT_GLITCH:  drawGlitch(canvas, w, h);  break;
-            case EFFECT_NEON:    drawNeon(canvas, w, h);    break;
-            case EFFECT_VINTAGE: drawVintage(canvas, w, h); break;
+            case EFFECT_HEARTS:      drawHearts(canvas, w, h);    break;
+            case EFFECT_FIRE:        drawFire(canvas, w, h);      break;
+            case EFFECT_SPARKS:      drawSparks(canvas, w, h);    break;
+            case EFFECT_SNOW:        drawSnow(canvas, w, h);      break;
+            case EFFECT_GLITCH:      drawGlitch(canvas, w, h);    break;
+            case EFFECT_NEON:        drawNeon(canvas, w, h);      break;
+            case EFFECT_VINTAGE:     drawVintage(canvas, w, h);   break;
+            case EFFECT_AR_CROWN:    drawArCrown(canvas);         break;
+            case EFFECT_AR_BIGEYES:  drawArBigEyes(canvas);       break;
+            case EFFECT_AR_DOG:      drawArDog(canvas);           break;
         }
         postDelayed(loopRunnable, 16);
     }
@@ -356,6 +389,83 @@ public class FaceEffectView extends View {
             gp.setColor(0xFFFFFFFF); gp.setAlpha(6+rng.nextInt(12));
             int ly=rng.nextInt(h);
             canvas.drawRect(0,ly,w,ly+1,gp);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  AR EFFECTS — face-tracked emoji overlays
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void drawArCrown(Canvas canvas) {
+        if (mFaces == null || mFaces.length == 0) return;
+        for (android.hardware.camera2.params.Face face : mFaces) {
+            android.graphics.Rect bounds = face.getBounds();
+            // Map face bounds corners via sensor→view transform
+            float left   = mapFaceX(bounds.top);
+            float right  = mapFaceX(bounds.bottom);
+            float top    = mapFaceY(bounds.right);
+            float bottom = mapFaceY(bounds.left);
+            float faceW  = Math.abs(right - left);
+            float cx     = (left + right) / 2f;
+            float faceTop = Math.min(top, bottom);
+            tp.setTextSize(faceW * 0.9f);
+            tp.setTextAlign(Paint.Align.CENTER);
+            tp.setAlpha(255);
+            // Draw crown above the face
+            canvas.drawText("👑", cx, faceTop - faceW * 0.1f, tp);
+        }
+    }
+
+    private void drawArBigEyes(Canvas canvas) {
+        if (mFaces == null || mFaces.length == 0) return;
+        for (android.hardware.camera2.params.Face face : mFaces) {
+            android.graphics.Rect bounds = face.getBounds();
+            float faceW = Math.abs(mapFaceX(bounds.bottom) - mapFaceX(bounds.top));
+            float eyeSize = faceW * 0.6f;
+            tp.setTextSize(eyeSize);
+            tp.setTextAlign(Paint.Align.CENTER);
+            tp.setAlpha(255);
+            // Left eye
+            android.graphics.Point leftEye = face.getLeftEyePosition();
+            if (leftEye != null) {
+                float ex = mapFaceX(leftEye.y);
+                float ey = mapFaceY(leftEye.x);
+                canvas.drawText("👁", ex, ey + eyeSize * 0.35f, tp);
+            }
+            // Right eye
+            android.graphics.Point rightEye = face.getRightEyePosition();
+            if (rightEye != null) {
+                float ex = mapFaceX(rightEye.y);
+                float ey = mapFaceY(rightEye.x);
+                canvas.drawText("👁", ex, ey + eyeSize * 0.35f, tp);
+            }
+        }
+    }
+
+    private void drawArDog(Canvas canvas) {
+        if (mFaces == null || mFaces.length == 0) return;
+        for (android.hardware.camera2.params.Face face : mFaces) {
+            android.graphics.Rect bounds = face.getBounds();
+            float left   = mapFaceX(bounds.top);
+            float right  = mapFaceX(bounds.bottom);
+            float top    = mapFaceY(bounds.right);
+            float bottom = mapFaceY(bounds.left);
+            float faceW  = Math.abs(right - left);
+            float cx     = (left + right) / 2f;
+            float faceTop = Math.min(top, bottom);
+            tp.setTextAlign(Paint.Align.CENTER);
+            tp.setAlpha(255);
+            // Dog head/ears above face
+            tp.setTextSize(faceW * 0.9f);
+            canvas.drawText("🐶", cx, faceTop - faceW * 0.05f, tp);
+            // Dog nose at mouth position
+            android.graphics.Point mouth = face.getMouthPosition();
+            if (mouth != null) {
+                float mx = mapFaceX(mouth.y);
+                float my = mapFaceY(mouth.x);
+                tp.setTextSize(faceW * 0.5f);
+                canvas.drawText("🐽", mx, my + faceW * 0.25f, tp);
+            }
         }
     }
 
