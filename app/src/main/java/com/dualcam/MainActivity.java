@@ -96,6 +96,8 @@ public class MainActivity extends AppCompatActivity {
     private Handler frontBitmapHandler;
     private Runnable frontBitmapUpdater;
     private android.hardware.camera2.params.Face[] detectedFaces;
+    // Actual front camera portrait dimensions (derived at runtime from camera characteristics)
+    private float frontContentW = 720f, frontContentH = 1280f;
 
     // Zoom
     private ScaleGestureDetector scaleDetector;
@@ -384,7 +386,7 @@ public class MainActivity extends AppCompatActivity {
                 openCamera(frontCameraId, false);
             }
             @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture st, int w, int h) {
-                applyFillTransform(textureFront, 720, 1280);
+                applyFillTransform(textureFront, frontContentW, frontContentH);
             }
             @Override public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture st) { return true; }
             @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture st) {}
@@ -485,9 +487,26 @@ public class MainActivity extends AppCompatActivity {
     private void createFrontSession() {
         if (frontCamera == null || !textureFront.isAvailable()) return;
         try {
+            // Query actual camera output size and sensor orientation to get true portrait aspect
+            CameraCharacteristics ch = cameraManager.getCameraCharacteristics(frontCameraId);
+            int sensorOri = ch.get(CameraCharacteristics.SENSOR_ORIENTATION);
+            android.hardware.camera2.params.StreamConfigurationMap scm =
+                ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            android.util.Size[] szList = scm.getOutputSizes(SurfaceTexture.class);
+            android.util.Size best = szList[0];
+            for (android.util.Size s : szList) {
+                if (Math.abs((long)s.getWidth() * s.getHeight() - 1280L * 720) <
+                    Math.abs((long)best.getWidth() * best.getHeight() - 1280L * 720)) {
+                    best = s;
+                }
+            }
+            boolean swapDims = (sensorOri == 90 || sensorOri == 270);
+            frontContentW = swapDims ? best.getHeight() : best.getWidth();
+            frontContentH = swapDims ? best.getWidth()  : best.getHeight();
+
             SurfaceTexture st = textureFront.getSurfaceTexture();
-            st.setDefaultBufferSize(1280, 720);
-            applyFillTransform(textureFront, 720, 1280);
+            st.setDefaultBufferSize(best.getWidth(), best.getHeight());
+            applyFillTransform(textureFront, frontContentW, frontContentH);
             Surface previewSurface = new Surface(st);
 
             CaptureRequest.Builder b = frontCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
@@ -664,22 +683,20 @@ public class MainActivity extends AppCompatActivity {
                 frontBitmapUpdater = new Runnable() {
                     @Override public void run() {
                         if (!isRecording || dualEncoder == null) return;
-                        int vw = textureFront.getWidth();
-                        int vh = textureFront.getHeight();
-                        if (vw > 0 && vh > 0) {
-                            int[] loc = new int[2];
-                            textureFront.getLocationInWindow(loc);
-                            android.graphics.Rect src = new android.graphics.Rect(
-                                loc[0], loc[1], loc[0] + vw, loc[1] + vh);
-                            Bitmap bmp = Bitmap.createBitmap(vw, vh, Bitmap.Config.ARGB_8888);
-                            android.view.PixelCopy.request(getWindow(), src, bmp, result -> {
-                                if (result == android.view.PixelCopy.SUCCESS
-                                        && isRecording && dualEncoder != null) {
-                                    dualEncoder.updateFrontBitmap(bmp);
-                                } else {
-                                    bmp.recycle();
-                                }
-                            }, frontBitmapHandler);
+                        Bitmap raw = textureFront.getBitmap();
+                        if (raw != null) {
+                            int w = raw.getWidth(), h = raw.getHeight();
+                            // Crop center slice matching actual camera portrait aspect ratio.
+                            // frontContentW/H is the true portrait size queried from camera
+                            // characteristics (accounts for sensor orientation swap).
+                            float aspect = frontContentW / frontContentH; // e.g. 9/16 or 3/4
+                            int cropH = Math.max(1, Math.min(h, (int)(h * aspect)));
+                            int cropY = (h - cropH) / 2;
+                            Bitmap cropped = Bitmap.createBitmap(raw, 0, cropY, w, cropH);
+                            raw.recycle();
+                            Bitmap square = Bitmap.createScaledBitmap(cropped, w, w, true);
+                            cropped.recycle();
+                            dualEncoder.updateFrontBitmap(square);
                         }
                         frontBitmapHandler.postDelayed(this, 66);
                     }
