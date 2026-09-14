@@ -91,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
     // Recording
     private MediaRecorder mediaRecorder;
     private DualCamEncoder dualEncoder;
+    private Surface encoderBackSurface;
     private boolean isRecording = false;
     private Uri recordingUri;
     private Handler frontBitmapHandler;
@@ -234,7 +235,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyZoom() {
-        if (isRecording) return;
         if (backCamera == null || backSession == null || backCameraId == null) return;
         try {
             CameraCharacteristics ch = cameraManager.getCameraCharacteristics(backCameraId);
@@ -245,11 +245,17 @@ public class MainActivity extends AppCompatActivity {
             int cx = sensor.centerX(), cy = sensor.centerY();
             Rect crop = new Rect(cx - cropW/2, cy - cropH/2, cx + cropW/2, cy + cropH/2);
 
-            CaptureRequest.Builder b = backCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            int tmpl = isRecording ? CameraDevice.TEMPLATE_RECORD : CameraDevice.TEMPLATE_PREVIEW;
+            CaptureRequest.Builder b = backCamera.createCaptureRequest(tmpl);
             b.addTarget(backPreviewSurface);
+            if (isRecording && encoderBackSurface != null) b.addTarget(encoderBackSurface);
             b.set(CaptureRequest.SCALER_CROP_REGION, crop);
-            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            b.set(CaptureRequest.CONTROL_AF_MODE,
+                isRecording ? CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                            : CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
             b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            b.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                  CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL);
             backSession.setRepeatingRequest(b.build(), null, cameraHandler);
         } catch (CameraAccessException e) { e.printStackTrace(); }
     }
@@ -623,6 +629,7 @@ public class MainActivity extends AppCompatActivity {
                 dualEncoder.prepare(mediaRecorder.getSurface());
 
                 Surface encBack = dualEncoder.getBackInputSurface();
+                encoderBackSurface = encBack;
 
                 // Rebuild only the back camera session to add the encoder surface.
                 // Front camera session stays as-is (preview-only to TextureView).
@@ -647,6 +654,20 @@ public class MainActivity extends AppCompatActivity {
                 bb.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
                 bb.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE,
                        CaptureRequest.STATISTICS_FACE_DETECT_MODE_FULL);
+                // Apply current zoom from the start of recording
+                if (currentZoom > 1.0f) {
+                    try {
+                        CameraCharacteristics ch2 = cameraManager.getCameraCharacteristics(backCameraId);
+                        Rect sensor2 = ch2.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                        if (sensor2 != null) {
+                            int cw = (int)(sensor2.width() / currentZoom);
+                            int ch_ = (int)(sensor2.height() / currentZoom);
+                            int cx2 = sensor2.centerX(), cy2 = sensor2.centerY();
+                            bb.set(CaptureRequest.SCALER_CROP_REGION,
+                                new Rect(cx2 - cw/2, cy2 - ch_/2, cx2 + cw/2, cy2 + ch_/2));
+                        }
+                    } catch (Exception ignored) {}
+                }
 
                 CameraCaptureSession.CaptureCallback recCaptureCallback =
                     new CameraCaptureSession.CaptureCallback() {
@@ -727,6 +748,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (dualEncoder != null) { dualEncoder.stop(); dualEncoder = null; }
+        encoderBackSurface = null;
         if (mediaRecorder != null) {
             try { mediaRecorder.stop(); } catch (Exception ignored) {}
             try { mediaRecorder.reset(); mediaRecorder.release(); } catch (Exception ignored) {}
